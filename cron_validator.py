@@ -83,3 +83,56 @@ def _is_valid_range_or_value(part: str, min_val: int, max_val: int) -> bool:
         return min_val <= int(part) <= max_val
 
     return False
+
+
+class VDBService(SessionManagerMixin):
+    # ...
+
+    @staticmethod
+    def _validate_auto_refresh_schedule(schedule: str | None) -> None:
+        """
+        Validate that the provided cron expression is syntactically correct.
+        None is valid — it means "disable auto-refresh".
+        """
+        if schedule is None:
+            return
+        if not is_valid_cron(schedule):
+            raise VDBServiceError(
+                f"Invalid cron expression '{schedule}'. "
+                "Expected a standard 5-field cron format (e.g. '0 2 * * 0')."
+            )
+
+    def update(self, vdb_id: str, **kwargs) -> VDB:
+        try:
+            vdb = self.repositories.vdb.get_by_id(vdb_id)
+        except NotFoundError as e:
+            raise VDBServiceError(f"VDB with id '{vdb_id}' is not found") from e
+
+        invalid_keys = [key for key in kwargs if not hasattr(vdb, key)]
+        if invalid_keys:
+            raise VDBServiceError(
+                f"Invalid update fields: '{', '.join(invalid_keys)}'. "
+                "Please provide valid VDB attributes."
+            )
+
+        # validate cron before persisting
+        if "auto_refresh_schedule" in kwargs:
+            self._validate_auto_refresh_schedule(kwargs["auto_refresh_schedule"])
+
+        changes = {
+            attr: value
+            for attr, value in kwargs.items()
+            if getattr(vdb, attr, None) != value
+        }
+        if not changes:
+            return vdb
+
+        try:
+            with self.autocommit():
+                self.repositories.vdb.update(vdb_id, **changes)
+        except Exception as e:
+            raise VDBServiceError(
+                f"Error while updating VDB '{vdb_id}' with changes {changes}: {str(e)}"
+            ) from e
+
+        return self.repositories.vdb.get_by_id(vdb_id)
