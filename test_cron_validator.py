@@ -115,3 +115,74 @@ def test_cron_with_tabs_between_fields_is_invalid():
 def test_cron_with_double_spaces_between_fields_is_invalid():
     """Double spaces produce empty fields after split."""
     assert is_valid_cron("0  2  *  *  0") is False
+
+
+# vdb tests addition
+
+@pytest.mark.unit
+def test_update_vdb_with_valid_cron_expression(vdb_service):
+    vdb = given_an_inserted_vdb(vdb_service)
+
+    updated = vdb_service.update(
+        vdb_id=vdb.id,
+        auto_refresh_schedule="0 2 * * 0",
+    )
+
+    assert updated.auto_refresh_schedule == "0 2 * * 0"
+    assert updated.auto_refresh_enabled is True
+
+
+@pytest.mark.unit
+def test_update_vdb_disable_auto_refresh(vdb_service):
+    vdb = given_an_inserted_vdb(vdb_service)
+    vdb_service.update(vdb_id=vdb.id, auto_refresh_schedule="0 2 * * 0")
+
+    updated = vdb_service.update(
+        vdb_id=vdb.id,
+        auto_refresh_schedule=None,
+    )
+
+    assert updated.auto_refresh_schedule is None
+    assert updated.auto_refresh_enabled is False
+
+
+@pytest.mark.unit
+def test_update_vdb_with_invalid_cron_expression(vdb_service):
+    vdb = given_an_inserted_vdb(vdb_service)
+
+    with pytest.raises(
+        VDBServiceError,
+        match="Invalid cron expression 'not-a-cron'",
+    ):
+        vdb_service.update(
+            vdb_id=vdb.id,
+            auto_refresh_schedule="not-a-cron",
+        )
+
+    # ensure nothing was persisted
+    refreshed = vdb_service.get(vdb.id)
+    assert refreshed.auto_refresh_schedule is None
+
+
+@pytest.mark.unit
+def test_update_vdb_with_invalid_cron_does_not_affect_other_fields(vdb_service):
+    vdb = given_an_inserted_vdb(vdb_service)
+
+    with pytest.raises(VDBServiceError):
+        vdb_service.update(
+            vdb_id=vdb.id,
+            auto_refresh_schedule="bad",
+            name="new-name",
+        )
+
+    # name should not have changed either
+    refreshed = vdb_service.get(vdb.id)
+    assert refreshed.name == vdb.name
+
+
+@pytest.mark.unit
+def test_auto_refresh_enabled_default_is_false(vdb_service):
+    vdb = given_an_inserted_vdb(vdb_service)
+
+    assert vdb.auto_refresh_schedule is None
+    assert vdb.auto_refresh_enabled is False
